@@ -82,8 +82,8 @@ class ShuffleSuite extends FunSuite with ShouldMatchers with LocalSparkContext {
     // If the Kryo serializer is not used correctly, the shuffle would fail because the
     // default Java serializer cannot handle the non serializable class.
     val c = new ShuffledRDD[Int, NonJavaSerializableClass, NonJavaSerializableClass,
-      (Int, NonJavaSerializableClass)](
-      b, new HashPartitioner(3)).setSerializer(new KryoSerializer(conf))
+      (Int, NonJavaSerializableClass)](b, new HashPartitioner(3))
+      .setSerializer(new KryoSerializer(conf))
     assert(c.count === 10)
   }
 
@@ -146,8 +146,7 @@ class ShuffleSuite extends FunSuite with ShouldMatchers with LocalSparkContext {
     val data = Array(p(1, 1), p(1, 2), p(1, 3), p(2, 1))
     val pairs: RDD[MutablePair[Int, Int]] = sc.parallelize(data, 2)
     val results = new ShuffledRDD[Int, Int, Int, MutablePair[Int, Int]](pairs,
-      new HashPartitioner(2))
-      .collect()
+      new HashPartitioner(2)).collect()
 
     data.foreach { pair => results should contain (pair) }
   }
