@@ -124,7 +124,7 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
 
       case StringType =>
         s"""${prefix}_data = new ColumnReader((Column) cols.get("${mapKey(prefix + "_data")}"));
-            ${prefix}_length = new ColumnReader((Column) cols.get"${mapKey(prefix + "_length")}"));
+            ${prefix}_length = new ColumnReader((Column) cols.get("${mapKey(prefix + "_length")}"));
           """
 
       case StructType(fields) =>
