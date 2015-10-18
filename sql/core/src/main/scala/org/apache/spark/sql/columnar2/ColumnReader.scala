@@ -17,19 +17,36 @@
 
 package org.apache.spark.sql.columnar2
 
-import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * Reads values from a column as primitive types. The column is supposed to only contain values
- * of the same type, but they may be compressed or bit-packed into fewer bits, so there are
- * accessor methods for all the primitive types one might expect to read from the column.
+ * of the same type, but these may be packed in various ways.
  */
 private[sql] class ColumnReader(column: Column) {
-  def readBoolean(): Boolean = ???
+  // TODO: replace with fast byte buffer reader
+  private val buffer = column.data.duplicate().order(ByteOrder.nativeOrder())
 
-  def readByte(): Boolean = ???
+  // TODO: support compression in all these methods (we'd probably do it by having a small
+  // buffer we periodically decompress into)
 
-  def readInt(): Boolean = ???
+  def readBoolean(): Boolean = {
+    require(column.encoding == FlatEncoding(8), "encoding must be FlatEncoding(8)")
+    buffer.get() != 0
+  }
 
-  def readBytes(dest: ByteBuffer, numBytes: Int): Unit = ???
+  def readByte(): Byte = {
+    require(column.encoding == FlatEncoding(8), "encoding must be FlatEncoding(8)")
+    buffer.get()
+  }
+
+  def readInt(): Int = {
+    require(column.encoding == FlatEncoding(32), "encoding must be FlatEncoding(32)")
+    buffer.getInt()
+  }
+
+  def readBytes(dest: Array[Byte], offset: Int, length: Int): Unit = {
+    require(column.encoding == FlatEncoding(8), "encoding must be FlatEncoding(8)")
+    buffer.get(dest, offset, length)
+  }
 }

@@ -18,7 +18,7 @@
 package org.apache.spark.sql.columnar2
 
 import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeFormatter, CodeGenerator}
 import org.apache.spark.sql.types._
 
 /**
@@ -50,85 +50,86 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
    */
   override protected def create(spec: ReadSpec): ColumnSetReader = {
     val code = s"""
-      import java.util.HashMap;
+      import org.apache.spark.sql.catalyst.expressions.*;
+      import org.apache.spark.sql.columnar2.*;
 
       public MyReader generate($exprType[] exprs) {
         return new MyReader();
       }
 
-      class MyReader extends ${classOf[ColumnSetReader].getName} {
+      class MyReader implements ${classOf[ColumnSetReader].getName} {
         private int numRows;
         private int rowsRead;
         private MutableRow outputRow;
-        ${spec.fieldsRead.map(i => columnDeclarations(spec.schema(i), "_" + i))}
+        ${spec.fieldsRead.map(i => columnDeclarations(spec.schema(i), "_" + i)).mkString("\n")}
 
         public void initialize(ColumnSet data, MutableRow outputRow) {
           this.numRows = data.numRows();
           this.rowsRead = 0;
           this.outputRow = outputRow;
-          HashMap<String, ColumnSet> cols = data.columns();
-          ${spec.fieldsRead.map(i => columnInitializers(spec.schema(i), "_" + i))}
+          java.util.Map cols = data.columns();
+          ${spec.fieldsRead.map(i => columnInitializers(spec.schema(i), "_" + i)).mkString("\n")}
         }
 
         public boolean readNext() {
           if (this.rowsRead == this.numRows) {
             return false;
           }
-          this.rowsRead++;
-          ${spec.fieldsRead.map(i => readField(spec.schema(i), "_" + i, "outputRow", i))}
+          ${spec.fieldsRead.map(i => readField(spec.schema(i), "_" + i, "outputRow", i)).mkString("\n")}
+          this.rowsRead += 1;
           return true;
         }
       }
       """
 
-    println(code)
+    println(CodeFormatter.format(code))
 
-    ???
+    compile(code).generate(Array()).asInstanceOf[ColumnSetReader]
   }
 
-  private def columnDeclarations(field: StructField, pathPrefix: String): String = {
+  private def columnDeclarations(field: StructField, prefix: String): String = {
     val nullable = if (field.nullable) {
-      s"""ColumnReader ${pathPrefix}_set;\n"""
+      s"""ColumnReader ${prefix}_set;\n"""
     } else {
       ""
     }
 
     val data = field.dataType match {
       case IntegerType =>
-        s"""ColumnReader ${pathPrefix}_data;"""
+        s"""ColumnReader ${prefix}_data;"""
 
       case StringType =>
-        s"""ColumnReader ${pathPrefix}_data;
-            ColumnReader ${pathPrefix}_length;"""
+        s"""ColumnReader ${prefix}_data;
+            ColumnReader ${prefix}_length;"""
 
       case StructType(fields) =>
         fields.zipWithIndex.map {
-          p => columnDeclarations(p._1, pathPrefix + "_" + p._2)
+          p => columnDeclarations(p._1, prefix + "_" + p._2)
         }.mkString("\n")
     }
 
     nullable + data
   }
 
-  private def columnInitializers(field: StructField, pathPrefix: String): String = {
+  private def columnInitializers(field: StructField, prefix: String): String = {
     val nullable = if (field.nullable) {
-      s"""${pathPrefix}_set = new ColumnReader(cols.get("${mapKey(pathPrefix + "_set")}"));\n"""
+      s"""${prefix}_set = new ColumnReader((Column) cols.get("${mapKey(prefix + "_set")}"));\n"""
     } else {
       ""
     }
 
     val data = field.dataType match {
       case IntegerType =>
-        s"""${pathPrefix}_data = new ColumnReader(cols.get("${mapKey(pathPrefix + "_data")}"));"""
+        s"""${prefix}_data = new ColumnReader((Column) cols.get("${mapKey(prefix + "_data")}"));"""
 
       case StringType =>
-        s"""${pathPrefix}_data = new ColumnReader(cols.get("${mapKey(pathPrefix + "_data")}"));
-            ${pathPrefix}_length = new ColumnReader(cols.get("${mapKey(pathPrefix + "_length")}"));
+        s"""${prefix}_data = new ColumnReader((Column) cols.get("${mapKey(prefix + "_data")}"));
+            ${prefix}_length = new ColumnReader((Column) cols.get"${mapKey(prefix + "_length")}"));
           """
 
       case StructType(fields) =>
         fields.zipWithIndex.map {
-          p => columnInitializers(p._1, pathPrefix + "_" + p._2)
+          p => columnInitializers(p._1, prefix + "_" + p._2)
         }.mkString("\n")
     }
 
@@ -137,35 +138,38 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
 
   private def readField(
       field: StructField,
-      pathPrefix: String,
+      prefix: String,
       rowVar: String,
       ordinalInRow: Int): String = {
     // Uniquely named local variables
-    val length = s"${pathPrefix}_v_length"
-    val bytes = s"${pathPrefix}_v_bytes"
-    val row = s"${pathPrefix}_v_row"
+    val length = s"${prefix}_v_length"
+    val bytes = s"${prefix}_v_bytes"
+    val row = s"${prefix}_v_row"
 
     val dataReadCode = field.dataType match {
       case IntegerType =>
-        s"""$rowVar.setInt($ordinalInRow, ${pathPrefix}_data.readInt());"""
+        s"""$rowVar.setInt($ordinalInRow, ${prefix}_data.readInt());"""
 
+      // TODO: Could avoid object allocation here by reusing the buffer, but we need to be careful
+      // if strings can also be read inside a List or Map
       case StringType =>
-        s"""int $length = ${pathPrefix}_length.readInt();
+        s"""int $length = ${prefix}_length.readInt();
             byte[] $bytes = new byte[$length];
-            ${pathPrefix}_data.readBytes($bytes, 0, $length);
+            ${prefix}_data.readBytes($bytes, 0, $length);
             $rowVar.update($ordinalInRow, UTF8String.fromBytes($bytes));
           """
 
+      // TODO: Could avoid object allocation by reusing the row, with same caveats as above
       case StructType(fields) =>
         s"""$row = new SpecificMutableRow();
             ${fields.zipWithIndex.map {
-              p => readField(p._1, pathPrefix + "_" + p._2, row, p._2)
+              p => readField(p._1, prefix + "_" + p._2, row, p._2)
             }.mkString("\n")}
          """
     }
 
     if (field.nullable) {
-      s"""if (${pathPrefix}_set.readBoolean()) {
+      s"""if (${prefix}_set.readBoolean()) {
             $dataReadCode
           } else {
             $rowVar.setNullAt($ordinalInRow);
@@ -180,7 +184,7 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
    * Convert a path name as used in our generated code (e.g. "_0_data") to the corresponding key in
    * a ColumnSet's hash map (e.g. "0.data").
    */
-  private def mapKey(path: String): Unit = {
+  private def mapKey(path: String): String = {
     path.substring(1).replace('_', '.')
   }
 }

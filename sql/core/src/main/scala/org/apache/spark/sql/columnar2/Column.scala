@@ -23,4 +23,4 @@ import java.nio.ByteBuffer
  * An encoded column of fixed-length values (e.g. bits, bytes, or ints).
  */
 private[sql]
-class Column(val data: ByteBuffer, val encoding: ColumnEncoding)
+case class Column(val data: ByteBuffer, val encoding: ColumnEncoding)

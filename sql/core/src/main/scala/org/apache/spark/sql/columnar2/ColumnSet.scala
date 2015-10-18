@@ -17,9 +17,9 @@
 
 package org.apache.spark.sql.columnar2
 
-import java.util.HashMap
+import java.util.{Map => JMap}
 
-import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.types.{StructType, DataType}
 
 /**
  * A set of columns representing a list of values of type dataType.
@@ -34,6 +34,6 @@ import org.apache.spark.sql.types.DataType
  * also be inferred from the columns we generate from them.
  */
 class ColumnSet(
-  val dataType: DataType,
-  val columns: HashMap[String, Column],
+  val dataType: StructType,
+  val columns: JMap[String, Column],
   val numRows: Int)

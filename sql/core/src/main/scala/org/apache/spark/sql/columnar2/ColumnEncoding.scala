@@ -25,9 +25,9 @@ private[sql] sealed trait ColumnEncoding
 /**
  * Flat values one after another, all of the same bit length.
  */
-private[sql] case class FlatEncoding(bits: Int)
+private[sql] case class FlatEncoding(bits: Int) extends ColumnEncoding
 
 /**
- * Run-length encoding of values of a given bit length, with run lengths of a given bit length.
+ * Run-length encoding of values of a given bit length (multiple of 8); run lengths are all 1 byte.
  */
-private[sql] case class RunLengthEncoding(valueBits: Int, runLengthBits: Int)
+private[sql] case class RunLengthEncoding(valueBits: Int) extends ColumnEncoding
