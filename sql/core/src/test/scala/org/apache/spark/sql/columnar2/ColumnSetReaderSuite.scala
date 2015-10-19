@@ -20,7 +20,7 @@ package org.apache.spark.sql.columnar2
 import java.nio.{ByteOrder, ByteBuffer}
 
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.SpecificMutableRow
+import org.apache.spark.sql.catalyst.expressions.{GenericMutableRow, SpecificMutableRow}
 import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.JavaConverters._
@@ -56,12 +56,16 @@ class ColumnSetReaderSuite extends FunSuite {
      createByteColumn(strings.mkString("").map(_.toByte): _*))
   }
 
-  private def checkRowsRead(reader: ColumnSetReader, data: ColumnSet, rows: Seq[Seq[Any]]): Unit = {
-    val row = new SpecificMutableRow(data.dataType.map(_.dataType))
+  private def checkRowsRead(
+      reader: ColumnSetReader,
+      data: ColumnSet,
+      spec: ReadSpec,
+      rows: Seq[InternalRow]): Unit = {
+    val row = new SpecificMutableRow(spec.fieldsRead.map(i => spec.schema(i).dataType))
     reader.initialize(data, row)
     for (r <- rows) {
       assert(reader.readNext(), "readNext returned false before reading " + rows.length + " rows")
-      assert(row === InternalRow(r: _*))
+      assert(r === row)
     }
     assert(!reader.readNext(), "readNext returned true even after " + rows.length + " rows")
   }
@@ -80,12 +84,12 @@ class ColumnSetReaderSuite extends FunSuite {
     val readSpec = ReadSpec(structType, Array(0, 1))
 
     val reader = new GenerateColumnSetReader().generate(readSpec)
-    checkRowsRead(reader, colSet, Seq(
-      Seq(1, -1),
-      Seq(-2, 2),
-      Seq(0, 3),
-      Seq(Int.MaxValue, Int.MinValue),
-      Seq(Int.MinValue, Int.MaxValue)))
+    checkRowsRead(reader, colSet, readSpec, Seq(
+      InternalRow(1, -1),
+      InternalRow(-2, 2),
+      InternalRow(0, 3),
+      InternalRow(Int.MaxValue, Int.MinValue),
+      InternalRow(Int.MinValue, Int.MaxValue)))
   }
 
   test("flat struct with nullables") {
@@ -109,12 +113,12 @@ class ColumnSetReaderSuite extends FunSuite {
     val readSpec = ReadSpec(structType, Array(0, 1))
 
     val reader = new GenerateColumnSetReader().generate(readSpec)
-    checkRowsRead(reader, colSet, Seq(
-      Seq(1, null),
-      Seq(null, -2),
-      Seq(0, 3),
-      Seq(null, null),
-      Seq(Int.MinValue, Int.MaxValue)))
+    checkRowsRead(reader, colSet, readSpec, Seq(
+      InternalRow(1, null),
+      InternalRow(null, -2),
+      InternalRow(0, 3),
+      InternalRow(null, null),
+      InternalRow(Int.MinValue, Int.MaxValue)))
   }
 
   test("flat struct with nullables and strings") {
@@ -139,11 +143,81 @@ class ColumnSetReaderSuite extends FunSuite {
     val readSpec = ReadSpec(structType, Array(0, 1))
 
     val reader = new GenerateColumnSetReader().generate(readSpec)
-    checkRowsRead(reader, colSet, Seq(
-      Seq(1, null),
-      Seq(null, UTF8String.fromString("Hi")),
-      Seq(0, UTF8String.fromString("")),
-      Seq(null, null),
-      Seq(Int.MinValue, UTF8String.fromString("there"))))
+    checkRowsRead(reader, colSet, readSpec, Seq(
+      InternalRow(1, null),
+      InternalRow(null, UTF8String.fromString("Hi")),
+      InternalRow(0, UTF8String.fromString("")),
+      InternalRow(null, null),
+      InternalRow(Int.MinValue, UTF8String.fromString("there"))))
+  }
+
+
+  test("reading only some fields") {
+    val structType = StructType(Seq(
+      StructField("a", IntegerType, nullable = true),
+      StructField("b", StringType, nullable = true)
+    ))
+
+    val set1 = createBooleanColumn(true, false, true, false, true)
+    val data1 = createIntColumn(1, 0, Int.MinValue)
+    val set2 = createBooleanColumn(false, true, true, false, true)
+    val (length2, data2) = createStringColumns("Hi", "", "there")
+    val map = Map(
+      "0.set" -> set1,
+      "0.data" -> data1,
+      "1.set" -> set2,
+      "1.length" -> length2,
+      "1.data" -> data2
+    ).asJava
+    val colSet = new ColumnSet(structType, map, 5)
+
+    val readSpec = ReadSpec(structType, Array(1))
+
+    val reader = new GenerateColumnSetReader().generate(readSpec)
+    checkRowsRead(reader, colSet, readSpec, Seq(
+      InternalRow(null),
+      InternalRow(UTF8String.fromString("Hi")),
+      InternalRow(UTF8String.fromString("")),
+      InternalRow(null),
+      InternalRow(UTF8String.fromString("there"))))
+  }
+
+  test("nested structs") {
+    val nestedType = StructType(Seq(
+      StructField("c", IntegerType, nullable = true),
+      StructField("d", StringType, nullable = false)
+    ))
+
+    val structType = StructType(Seq(
+      StructField("a", IntegerType, nullable = false),
+      StructField("b", nestedType, nullable = true)
+    ))
+
+    val dataA = createIntColumn(1, 2, 3, 4)
+    val setB = createBooleanColumn(true, false, true, true)
+    val setC = createBooleanColumn(true, false, true)
+    val dataC = createIntColumn(1, 2)
+    val (lengthD, dataD) = createStringColumns("foo", "bar", "")
+
+    val map = Map(
+      "0.data" -> dataA,
+      "1.set" -> setB,
+      "1.0.set" -> setC,
+      "1.0.data" -> dataC,
+      "1.1.length" -> lengthD,
+      "1.1.data" -> dataD
+    ).asJava
+
+    val colSet = new ColumnSet(structType, map, 4)
+
+    val readSpec = ReadSpec(structType, Array(0, 1))
+
+    val reader = new GenerateColumnSetReader().generate(readSpec)
+
+    checkRowsRead(reader, colSet, readSpec, Seq(
+      InternalRow(1, InternalRow(1, UTF8String.fromString("foo"))),
+      InternalRow(2, null),
+      InternalRow(3, InternalRow(null, UTF8String.fromString("bar"))),
+      InternalRow(4, InternalRow(2, UTF8String.fromString("")))))
   }
 }

@@ -75,18 +75,25 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
           if (this.rowsRead == this.numRows) {
             return false;
           }
-          ${spec.fieldsRead.map(i => readField(spec.schema(i), "_" + i, "outputRow", i)).mkString("\n")}
+          ${spec.fieldsRead.zipWithIndex.map{ case (f, i) =>
+             readField(spec.schema(f), "_" + f, "outputRow", i)
+           }.mkString("\n")}
           this.rowsRead += 1;
           return true;
         }
       }
       """
 
+    // TODO: replace with log statement
     println(CodeFormatter.format(code))
 
     compile(code).generate(Array()).asInstanceOf[ColumnSetReader]
   }
 
+  /**
+   * Generate the variable declarations required to read a specific column, given its path prefix
+   * (e.g. "_0" for field 0, "_0_1" for "0.1", etc).
+   */
   private def columnDeclarations(field: StructField, prefix: String): String = {
     val nullable = if (field.nullable) {
       s"""ColumnReader ${prefix}_set;\n"""
@@ -103,14 +110,18 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
             ColumnReader ${prefix}_length;"""
 
       case StructType(fields) =>
-        fields.zipWithIndex.map {
-          p => columnDeclarations(p._1, prefix + "_" + p._2)
+        fields.zipWithIndex.map { case (f, i) =>
+          columnDeclarations(f, prefix + "_" + i)
         }.mkString("\n")
     }
 
     nullable + data
   }
 
+  /**
+   * Generate the code to initialize readers for a specific column, given its path prefix
+   * (e.g. "_0" for field 0, "_0_1" for "0.1", etc).
+   */
   private def columnInitializers(field: StructField, prefix: String): String = {
     val nullable = if (field.nullable) {
       s"""${prefix}_set = new ColumnReader((Column) cols.get("${mapKey(prefix + "_set")}"));\n"""
@@ -128,23 +139,27 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
           """
 
       case StructType(fields) =>
-        fields.zipWithIndex.map {
-          p => columnInitializers(p._1, prefix + "_" + p._2)
+        fields.zipWithIndex.map { case (f, i) =>
+          columnInitializers(f, prefix + "_" + i)
         }.mkString("\n")
     }
 
     nullable + data
   }
 
+  /**
+   * Generate code to read the next instance of a field into a given ordinal position in rowVar
+   * (which should be a SpecificMutableRow), given the path prefix for the field.
+   */
   private def readField(
       field: StructField,
       prefix: String,
       rowVar: String,
       ordinalInRow: Int): String = {
-    // Uniquely named local variables
-    val length = s"${prefix}_v_length"
-    val bytes = s"${prefix}_v_bytes"
-    val row = s"${prefix}_v_row"
+    // Uniquely named local variables that won't clash with our field names
+    val length = s"${prefix}_length_"
+    val bytes = s"${prefix}_bytes_"
+    val row = s"${prefix}_row_"
 
     val dataReadCode = field.dataType match {
       case IntegerType =>
@@ -161,10 +176,11 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
 
       // TODO: Could avoid object allocation by reusing the row, with same caveats as above
       case StructType(fields) =>
-        s"""$row = new SpecificMutableRow();
-            ${fields.zipWithIndex.map {
-              p => readField(p._1, prefix + "_" + p._2, row, p._2)
+        s"""GenericMutableRow $row = new GenericMutableRow(${fields.length});
+            ${fields.zipWithIndex.map { case (f, i) =>
+              readField(f, prefix + "_" + i, row, i)
             }.mkString("\n")}
+            $rowVar.update($ordinalInRow, $row);
          """
     }
 
