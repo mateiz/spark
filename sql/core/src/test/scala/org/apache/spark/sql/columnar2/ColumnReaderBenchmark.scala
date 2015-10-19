@@ -66,8 +66,8 @@ object ColumnReaderBenchmark {
     data.rewind()
     val array = data.array()
     var sum = 0
-    var offset: Long = Platform.BYTE_ARRAY_OFFSET
-    val end = data.limit() + Platform.BYTE_ARRAY_OFFSET
+    var offset = Platform.BYTE_ARRAY_OFFSET.toLong
+    val end = data.limit().toLong + Platform.BYTE_ARRAY_OFFSET.toLong
     while (offset < end) {
       sum += Platform.getInt(array, offset)
       offset += 4
@@ -100,7 +100,7 @@ object ColumnReaderBenchmark {
 
     benchmark("Array", numBytes) { require(arrayIntSum(ints) == expectedSum) }
     benchmark("Naive", numBytes) { require(naiveIntSum(data) == expectedSum) }
-    benchmark("Unsafe", numBytes) { require(unsafeIntSum(data) == expectedSum, unsafeIntSum(data)) }
+    benchmark("Unsafe", numBytes) { require(unsafeIntSum(data) == expectedSum) }
     benchmark("Flat32", numBytes) { require(flat32IntSum(data) == expectedSum) }
   }
 }
