@@ -61,11 +61,11 @@ class ColumnReaderSuite extends SparkFunSuite {
     assert(r4.readByte() === Byte.MinValue)
   }
 
-  test("compressed booleans") {
+  test("1-bit encoding of bytes") {
     val bytes = Array[Byte](
-      Integer.parseInt("01101101", 2).toByte,
-      Integer.parseInt("11110000", 2).toByte,
-      Integer.parseInt("00001111", 2).toByte)
+      Integer.parseInt("01101101".reverse, 2).toByte,
+      Integer.parseInt("11110000".reverse, 2).toByte,
+      Integer.parseInt("00001111".reverse, 2).toByte)
     val buf = ByteBuffer.wrap(bytes)
     val r = new ColumnReader(new Column(buf, 8, FlatEncoding(1)))
 
@@ -97,20 +97,39 @@ class ColumnReaderSuite extends SparkFunSuite {
     assert(r.readByte() === 1)
   }
 
-  test("compressed booleans that exceed decode buffer") {
-    val theByte = Integer.parseInt("01101101", 2).toByte
+  test("1-bit encoding of bytes with size larger than decode buffer") {
+    val theByte = Integer.parseInt("01101101".reverse, 2).toByte
     val repeats = ColumnReader.DECODE_BUFFER_SIZE + 37
     val buf = ByteBuffer.wrap(Array.fill(repeats)(theByte))
-    val r = new ColumnReader(new Column(buf, 8, FlatEncoding(1)))
+
+    val r1 = new ColumnReader(new Column(buf, 8, FlatEncoding(1)))
     for (i <- 0 until repeats) {
-      assert(r.readByte() === 0)
-      assert(r.readByte() === 1)
-      assert(r.readByte() === 1)
-      assert(r.readByte() === 0)
-      assert(r.readByte() === 1)
-      assert(r.readByte() === 1)
-      assert(r.readByte() === 0)
-      assert(r.readByte() === 1)
+      assert(r1.readByte() === 0)
+      assert(r1.readByte() === 1)
+      assert(r1.readByte() === 1)
+      assert(r1.readByte() === 0)
+      assert(r1.readByte() === 1)
+      assert(r1.readByte() === 1)
+      assert(r1.readByte() === 0)
+      assert(r1.readByte() === 1)
+    }
+
+    val r2 = new ColumnReader(new Column(buf, 8, FlatEncoding(1)))
+    val expanded = new Array[Byte](repeats * 8)
+    r2.readBytes(expanded, 0, repeats * 8)
+    for (i <- 0 until repeats * 8) {
+      val mod = i % 8
+      assert(expanded(i) === ((theByte >> mod) & 1))
+    }
+  }
+
+  test("8-bit encoding") {
+    val bytes = (Byte.MinValue.toInt to Byte.MaxValue.toInt).map(_.toByte).toArray
+    val buf = ByteBuffer.wrap(bytes)
+    val r = new ColumnReader(new Column(buf, 32, FlatEncoding(8)))
+
+    for (i <- Byte.MinValue.toInt to Byte.MaxValue.toInt) {
+      assert(r.readInt() === (i & 0xff))
     }
   }
 }

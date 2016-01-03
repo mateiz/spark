@@ -115,7 +115,7 @@ private[sql] class ColumnReader(column: Column) {
         throw new IndexOutOfBoundsException("reading past end of column")
       }
       decodedOffset = Platform.BYTE_ARRAY_OFFSET
-        // Decode stuff; to avoid a lot of branches, we have a method for every encoding we
+      // Decode stuff; to avoid a lot of branches, we have a method for every encoding we
       // might pick, which is kind of weird but can hopefully be code-generated later
       column.encoding match {
         case FlatEncoding(1) =>
@@ -137,15 +137,31 @@ private[sql] class ColumnReader(column: Column) {
       val endOffset = math.min(encodedEnd, encodedOffset + DECODE_BUFFER_SIZE / (8 / 1))
       while (encodedOffset < endOffset) {
         val thisByte = Platform.getByte(encodedObject, encodedOffset).toInt
-        Platform.putByte(decodedObject, outputOffset + 0, ((thisByte >> 7) & 1).toByte)
-        Platform.putByte(decodedObject, outputOffset + 1, ((thisByte >> 6) & 1).toByte)
-        Platform.putByte(decodedObject, outputOffset + 2, ((thisByte >> 5) & 1).toByte)
-        Platform.putByte(decodedObject, outputOffset + 3, ((thisByte >> 4) & 1).toByte)
-        Platform.putByte(decodedObject, outputOffset + 4, ((thisByte >> 3) & 1).toByte)
-        Platform.putByte(decodedObject, outputOffset + 5, ((thisByte >> 2) & 1).toByte)
-        Platform.putByte(decodedObject, outputOffset + 6, ((thisByte >> 1) & 1).toByte)
-        Platform.putByte(decodedObject, outputOffset + 7, (thisByte & 1).toByte)
+        Platform.putByte(decodedObject, outputOffset + 0, ((thisByte >> 0) & 1).toByte)
+        Platform.putByte(decodedObject, outputOffset + 1, ((thisByte >> 1) & 1).toByte)
+        Platform.putByte(decodedObject, outputOffset + 2, ((thisByte >> 2) & 1).toByte)
+        Platform.putByte(decodedObject, outputOffset + 3, ((thisByte >> 3) & 1).toByte)
+        Platform.putByte(decodedObject, outputOffset + 4, ((thisByte >> 4) & 1).toByte)
+        Platform.putByte(decodedObject, outputOffset + 5, ((thisByte >> 5) & 1).toByte)
+        Platform.putByte(decodedObject, outputOffset + 6, ((thisByte >> 6) & 1).toByte)
+        Platform.putByte(decodedObject, outputOffset + 7, ((thisByte >> 7) & 1).toByte)
         outputOffset += 8
+        encodedOffset += 1
+      }
+      decodedEnd = outputOffset
+    } else if (column.bitLength == 32) {
+      val endOffset = math.min(encodedEnd, encodedOffset + DECODE_BUFFER_SIZE / (32 / 1))
+      while (encodedOffset < endOffset) {
+        val thisByte = Platform.getByte(encodedObject, encodedOffset).toInt
+        Platform.putInt(decodedObject, outputOffset + 0 * 4, ((thisByte >> 0) & 1).toByte)
+        Platform.putInt(decodedObject, outputOffset + 1 * 4, ((thisByte >> 1) & 1).toByte)
+        Platform.putInt(decodedObject, outputOffset + 2 * 4, ((thisByte >> 2) & 1).toByte)
+        Platform.putInt(decodedObject, outputOffset + 3 * 4, ((thisByte >> 3) & 1).toByte)
+        Platform.putInt(decodedObject, outputOffset + 4 * 4, ((thisByte >> 4) & 1).toByte)
+        Platform.putInt(decodedObject, outputOffset + 5 * 4, ((thisByte >> 5) & 1).toByte)
+        Platform.putInt(decodedObject, outputOffset + 6 * 4, ((thisByte >> 6) & 1).toByte)
+        Platform.putInt(decodedObject, outputOffset + 7 * 4, ((thisByte >> 7) & 1).toByte)
+        outputOffset += 32
         encodedOffset += 1
       }
       decodedEnd = outputOffset
@@ -161,6 +177,19 @@ private[sql] class ColumnReader(column: Column) {
     var outputOffset = decodedOffset
     if (column.bitLength == 32) {
       val endOffset = math.min(encodedEnd, encodedOffset + DECODE_BUFFER_SIZE / (32 / 8))
+      while (encodedOffset + 8 < endOffset) {
+        val thisLong = Platform.getLong(encodedObject, encodedOffset)
+        Platform.putInt(decodedObject, outputOffset + 0 * 4, (thisLong >> (0 * 8)).toInt & 0xff)
+        Platform.putInt(decodedObject, outputOffset + 1 * 4, (thisLong >> (1 * 8)).toInt & 0xff)
+        Platform.putInt(decodedObject, outputOffset + 2 * 4, (thisLong >> (2 * 8)).toInt & 0xff)
+        Platform.putInt(decodedObject, outputOffset + 3 * 4, (thisLong >> (3 * 8)).toInt & 0xff)
+        Platform.putInt(decodedObject, outputOffset + 4 * 4, (thisLong >> (4 * 8)).toInt & 0xff)
+        Platform.putInt(decodedObject, outputOffset + 5 * 4, (thisLong >> (5 * 8)).toInt & 0xff)
+        Platform.putInt(decodedObject, outputOffset + 6 * 4, (thisLong >> (6 * 8)).toInt & 0xff)
+        Platform.putInt(decodedObject, outputOffset + 7 * 4, (thisLong >> (7 * 8)).toInt & 0xff)
+        outputOffset += 4 * 8
+        encodedOffset += 1 * 8
+      }
       while (encodedOffset < endOffset) {
         val thisByte = Platform.getByte(encodedObject, encodedOffset)
         Platform.putInt(decodedObject, outputOffset, thisByte & 0xff)

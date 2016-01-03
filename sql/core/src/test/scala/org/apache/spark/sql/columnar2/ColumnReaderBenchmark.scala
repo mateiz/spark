@@ -75,6 +75,19 @@ object ColumnReaderBenchmark {
     sum
   }
 
+  private def unsafeFlat8Sum(data: ByteBuffer): Int = {
+    data.rewind()
+    val array = data.array()
+    var sum = 0
+    var offset = Platform.BYTE_ARRAY_OFFSET.toLong
+    val end = data.limit().toLong + Platform.BYTE_ARRAY_OFFSET.toLong
+    while (offset < end) {
+      sum += Platform.getByte(array, offset).toInt & 0xff
+      offset += 1
+    }
+    sum
+  }
+
   private def flat32IntSum(data: ByteBuffer): Int = {
     data.rewind()
     val column = new Column(data, 32, FlatEncoding(32))
@@ -103,8 +116,22 @@ object ColumnReaderBenchmark {
     sum
   }
 
+  private def flat1IntSum(data: ByteBuffer): Int = {
+    data.rewind()
+    val column = new Column(data, 32, FlatEncoding(1))
+    val reader = new ColumnReader(column)
+    var i = 0
+    val total = data.limit() * 8
+    var sum = 0
+    while (i < total) {
+      sum += reader.readInt()
+      i += 1
+    }
+    sum
+  }
+
   def main(args: Array[String]): Unit = {
-    val numRawBytes = 16 * 1024 * 1024
+    val numRawBytes = 32 * 1024 * 1024
     val numInts = numRawBytes / 4
     val ints = (0 until numInts).map(i => i % 2).toArray
     val expectedSum = ints.sum
@@ -113,15 +140,24 @@ object ColumnReaderBenchmark {
     flat32Data.asIntBuffer().put(ints)
     flat32Data.rewind()
 
-    val intsAsBytes = ints.map(_.toByte)
     val flat8Data = ByteBuffer.allocate(numInts).order(ByteOrder.nativeOrder())
+    val intsAsBytes = ints.map(_.toByte)
     flat8Data.put(intsAsBytes)
     flat8Data.rewind()
 
+    val flat1Data = ByteBuffer.allocate(numInts / 8).order(ByteOrder.nativeOrder())
+    for (i <- 0 until numInts) {
+      val value = ints(i) & 1
+      flat1Data.put(i / 8, (flat1Data.get(i / 8) | (value << (i % 8))).toByte)
+    }
+    flat1Data.rewind()
+
     benchmark("Array", numRawBytes) { require(arrayIntSum(ints) == expectedSum) }
     benchmark("Naive", numRawBytes) { require(naiveIntSum(flat32Data) == expectedSum) }
-    benchmark("Unsafe", numRawBytes) { require(unsafeIntSum(flat32Data) == expectedSum) }
+    benchmark("Unsafe32", numRawBytes) { require(unsafeIntSum(flat32Data) == expectedSum) }
+    benchmark("Unsafe8", numRawBytes) { require(unsafeFlat8Sum(flat8Data) == expectedSum) }
     benchmark("Flat32", numRawBytes) { require(flat32IntSum(flat32Data) == expectedSum) }
     benchmark("Flat8", numRawBytes) { require(flat8IntSum(flat8Data) == expectedSum) }
+    benchmark("Flat1", numRawBytes) { require(flat1IntSum(flat1Data) == expectedSum) }
   }
 }
