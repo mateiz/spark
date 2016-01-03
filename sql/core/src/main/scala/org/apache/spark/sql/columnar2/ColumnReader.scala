@@ -28,14 +28,14 @@ import org.apache.spark.unsafe.Platform
  */
 private[sql] final class ColumnReader(column: Column) {
   // Object and offset used for reading the raw data
-  private val encodedObject = column.baseObject
-  private var encodedOffset = column.baseOffset
-  private val encodedEnd = column.baseOffset + column.numBytes
+  private[this] val encodedObject = column.baseObject
+  private[this] var encodedOffset = column.baseOffset
+  private[this] val encodedEnd = column.baseOffset + column.numBytes
 
   // Object and offset storing uncompressed data, if the data is encoded
-  private var decodedObject: AnyRef = null
-  private var decodedOffset: Long = 0
-  private var decodedEnd: Long = 0
+  private[this] var decodedObject: AnyRef = null
+  private[this] var decodedOffset: Long = 0
+  private[this] var decodedEnd: Long = 0
 
   import ColumnReader.DECODE_BUFFER_SIZE
 
