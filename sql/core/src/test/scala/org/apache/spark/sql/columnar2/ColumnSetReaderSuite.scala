@@ -19,28 +19,27 @@ package org.apache.spark.sql.columnar2
 
 import java.nio.{ByteOrder, ByteBuffer}
 
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{GenericMutableRow, SpecificMutableRow}
-import org.apache.spark.unsafe.types.UTF8String
-
 import scala.collection.JavaConverters._
 
+import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.types._
-import org.scalatest.FunSuite
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.SpecificMutableRow
+import org.apache.spark.unsafe.types.UTF8String
 
-class ColumnSetReaderSuite extends FunSuite {
+class ColumnSetReaderSuite extends SparkFunSuite {
   private def createByteColumn(bytes: Byte*): Column = {
     val buf = ByteBuffer.allocate(bytes.size).order(ByteOrder.nativeOrder())
     buf.put(bytes.toArray)
     buf.rewind()
-    Column(buf, FlatEncoding(8))
+    new Column(buf, 8, FlatEncoding(8))
   }
 
   private def createIntColumn(ints: Int*): Column = {
     val buf = ByteBuffer.allocate(4 * ints.size).order(ByteOrder.nativeOrder())
     buf.asIntBuffer().put(ints.toArray)
     buf.rewind()
-    Column(buf, FlatEncoding(32))
+    new Column(buf, 32, FlatEncoding(32))
   }
 
   private def createBooleanColumn(bools: Boolean*): Column = {

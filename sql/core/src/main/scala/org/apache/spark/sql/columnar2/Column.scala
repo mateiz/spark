@@ -19,8 +19,28 @@ package org.apache.spark.sql.columnar2
 
 import java.nio.ByteBuffer
 
+import org.apache.spark.unsafe.Platform
+
 /**
- * An encoded column of fixed-length values (e.g. bits, bytes, or ints).
+ * An encoded column of fixed-length values (e.g. bytes, or ints) with the given `bitLength`.
+ * These may be encoded into fewer bits, variable-length encodings, etc.
+ *
+ * @param baseObject object that our bytes are stored in (for use with spark.unsafe)
+ * @param baseOffset start offset of our data inside baseObject
+ * @param numBytes size in bytes of our encoded data
+ * @param bitLength bit length of values this column stores (in their uncompressed form); must be
+ *   one of 8, 16, 32 or 64 -- boolean values should use 8
+ * @param encoding how the data is encoded
  */
 private[sql]
-case class Column(val data: ByteBuffer, val encoding: ColumnEncoding)
+class Column(
+    val baseObject: AnyRef,
+    val baseOffset: Long,
+    val numBytes: Long,
+    val bitLength: Int,
+    val encoding: ColumnEncoding)
+{
+  def this(buffer: ByteBuffer, bitLength: Int, encoding: ColumnEncoding) = {
+    this(buffer.array, Platform.BYTE_ARRAY_OFFSET, buffer.limit, bitLength, encoding)
+  }
+}

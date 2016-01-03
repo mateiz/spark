@@ -31,7 +31,7 @@ object ColumnReaderBenchmark {
     (System.nanoTime() - start) / 1.0e9
   }
 
-  private def benchmark(name: String, bytes: Long, attempts: Int = 8)(code: => Unit): Unit = {
+  private def benchmark(name: String, bytes: Long, attempts: Int = 10)(code: => Unit): Unit = {
     val gbs = bytes / (1024.0 * 1024.0 * 1024.0)
     for (i <- 1 to attempts) {
       val secs = time(code)
@@ -77,7 +77,7 @@ object ColumnReaderBenchmark {
 
   private def flat32IntSum(data: ByteBuffer): Int = {
     data.rewind()
-    val column = Column(data, FlatEncoding(32))
+    val column = new Column(data, 32, FlatEncoding(32))
     val reader = new ColumnReader(column)
     var i = 0
     val total = data.limit() / 4
