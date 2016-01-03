@@ -95,7 +95,7 @@ object ColumnReaderBenchmark {
   private def flat32IntSum(data: ByteBuffer): Int = {
     data.rewind()
     val column = new Column(data, 32, FlatEncoding(32))
-    val reader = new ColumnReader(column)
+    val reader = new ColumnReader2(column)
     var i = 0
     val total = data.limit() / 4
     var sum = 0
@@ -161,7 +161,7 @@ object ColumnReaderBenchmark {
     benchmark("Unsafe32", numRawBytes) { require(unsafeIntSum(flat32Data) == expectedSum) }
     benchmark("Unsafe8", numRawBytes) { require(unsafeFlat8Sum(flat8Data) == expectedSum) }
     benchmark("Flat32", numRawBytes) { require(flat32IntSum(flat32Data) == expectedSum) }
-    benchmark("Flat8", numRawBytes) { require(flat8IntSum(flat8Data) == expectedSum) }
-    benchmark("Flat1", numRawBytes) { require(flat1IntSum(flat1Data) == expectedSum) }
+    //benchmark("Flat8", numRawBytes) { require(flat8IntSum(flat8Data) == expectedSum) }
+    //benchmark("Flat1", numRawBytes) { require(flat1IntSum(flat1Data) == expectedSum) }
   }
 }
