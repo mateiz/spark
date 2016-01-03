@@ -67,10 +67,12 @@ object ColumnReaderBenchmark {
     val array = data.array()
     var sum = 0
     var offset = Platform.BYTE_ARRAY_OFFSET.toLong
-    val end = data.limit().toLong + Platform.BYTE_ARRAY_OFFSET.toLong
-    while (offset < end) {
+    var i = 0
+    var end = data.limit() / 4
+    while (i < end) {
       sum += Platform.getInt(array, offset)
       offset += 4
+      i += 1
     }
     sum
   }
@@ -80,10 +82,12 @@ object ColumnReaderBenchmark {
     val array = data.array()
     var sum = 0
     var offset = Platform.BYTE_ARRAY_OFFSET.toLong
-    val end = data.limit().toLong + Platform.BYTE_ARRAY_OFFSET.toLong
-    while (offset < end) {
+    var i = 0
+    val end = data.limit
+    while (i < end) {
       sum += Platform.getByte(array, offset).toInt & 0xff
       offset += 1
+      i += 1
     }
     sum
   }
