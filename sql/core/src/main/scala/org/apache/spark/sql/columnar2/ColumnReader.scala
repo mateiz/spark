@@ -135,7 +135,7 @@ private[sql] class ColumnReader(column: Column) {
     var outputOffset = decodedOffset
     if (column.bitLength == 8) {
       val endOffset = math.min(encodedEnd, encodedOffset + DECODE_BUFFER_SIZE / (8 / 1))
-      while(encodedOffset < endOffset) {
+      while (encodedOffset < endOffset) {
         val thisByte = Platform.getByte(encodedObject, encodedOffset).toInt
         Platform.putByte(decodedObject, outputOffset + 0, ((thisByte >> 7) & 1).toByte)
         Platform.putByte(decodedObject, outputOffset + 1, ((thisByte >> 6) & 1).toByte)
@@ -161,8 +161,8 @@ private[sql] class ColumnReader(column: Column) {
     var outputOffset = decodedOffset
     if (column.bitLength == 32) {
       val endOffset = math.min(encodedEnd, encodedOffset + DECODE_BUFFER_SIZE / (32 / 8))
-      while(encodedOffset < endOffset) {
-        val thisByte = Platform.getByte(encodedObject, encodedOffset).toInt
+      while (encodedOffset < endOffset) {
+        val thisByte = Platform.getByte(encodedObject, encodedOffset)
         Platform.putInt(decodedObject, outputOffset, thisByte & 0xff)
         outputOffset += 4
         encodedOffset += 1
