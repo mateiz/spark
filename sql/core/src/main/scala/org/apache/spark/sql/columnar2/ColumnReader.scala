@@ -26,7 +26,7 @@ import org.apache.spark.unsafe.Platform
  * This class does not do bounds checking -- it is only meant to be called from inside
  * ColumnSetReader, which makes sure not to read past the end of the row batch.
  */
-private[sql] class ColumnReader(column: Column) {
+private[sql] final class ColumnReader(column: Column) {
   // Object and offset used for reading the raw data
   private val encodedObject = column.baseObject
   private var encodedOffset = column.baseOffset
