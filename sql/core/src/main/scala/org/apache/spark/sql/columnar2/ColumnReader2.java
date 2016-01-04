@@ -20,7 +20,7 @@ package org.apache.spark.sql.columnar2;
 import org.apache.spark.unsafe.Platform;
 import scala.NotImplementedError;
 
-public class ColumnReader2 {
+public final class ColumnReader2 {
   static final int DECODE_BUFFER_SIZE = 1024;
 
   private Column column;
@@ -40,7 +40,16 @@ public class ColumnReader2 {
     this.encodedObject = column.baseObject();
     this.encodedOffset = column.baseOffset();
     this.encodedEnd = column.baseOffset() + column.numBytes();
-    decodeNextChunk();
+    ColumnEncoding encoding = column.encoding();
+    if (encoding instanceof FlatEncoding && ((FlatEncoding) encoding).bits() == column.bitLength()) {
+      // Just point to the data buffers
+      decodedObject = encodedObject;
+      decodedOffset = encodedOffset;
+      decodedEnd = encodedEnd;
+    } else {
+      decodedObject = new byte[DECODE_BUFFER_SIZE];
+      decodeNextChunk();
+    }
   }
 
   public int readInt() {
@@ -64,20 +73,10 @@ public class ColumnReader2 {
    */
   private void decodeNextChunk() {
     ColumnEncoding encoding = column.encoding();
-    if (encoding instanceof FlatEncoding && ((FlatEncoding) encoding).bits() == column.bitLength()) {
-      // Just point to the data buffers, unless we're called twice, in which case we're at EOF
-      if (decodedObject == null) {
-        decodedObject = encodedObject;
-        decodedOffset = encodedOffset;
-        decodedEnd = encodedEnd;
-      } else {
-        throw new IndexOutOfBoundsException("reading past end of column");
-      }
+    if (decodedObject == encodedObject) {
+      // decodeNextChunk was called after already reading through the whole original object
+      throw new IndexOutOfBoundsException("reading past end of column");
     } else {
-      // Make sure we have a byte array to write stuff into
-      if (decodedObject == null) {
-        decodedObject = new byte[DECODE_BUFFER_SIZE];
-      }
       // Check for EOF
       if (encodedOffset == encodedEnd) {
         throw new IndexOutOfBoundsException("reading past end of column");
@@ -94,48 +93,6 @@ public class ColumnReader2 {
       throw new NotImplementedError();
     }
   }
-
-  /**
-   * Decode bits with FlatEncoding(1) into our decoded buffer, and update decodedEnd and dataEnd.
-   */
-  //private def decodeFlat1(): Unit = {
-  //  var outputOffset = decodedOffset
-  //  if (column.bitLength == 8) {
-  //    val endOffset = math.min(encodedEnd, encodedOffset + DECODE_BUFFER_SIZE / (8 / 1))
-  //    while (encodedOffset < endOffset) {
-  //      val thisByte = Platform.getByte(encodedObject, encodedOffset).toInt
-  //      Platform.putByte(decodedObject, outputOffset + 0, ((thisByte >> 0) & 1).toByte)
-  //      Platform.putByte(decodedObject, outputOffset + 1, ((thisByte >> 1) & 1).toByte)
-  //      Platform.putByte(decodedObject, outputOffset + 2, ((thisByte >> 2) & 1).toByte)
-  //      Platform.putByte(decodedObject, outputOffset + 3, ((thisByte >> 3) & 1).toByte)
-  //      Platform.putByte(decodedObject, outputOffset + 4, ((thisByte >> 4) & 1).toByte)
-  //      Platform.putByte(decodedObject, outputOffset + 5, ((thisByte >> 5) & 1).toByte)
-  //      Platform.putByte(decodedObject, outputOffset + 6, ((thisByte >> 6) & 1).toByte)
-  //      Platform.putByte(decodedObject, outputOffset + 7, ((thisByte >> 7) & 1).toByte)
-  //      outputOffset += 8
-  //      encodedOffset += 1
-  //    }
-  //    decodedEnd = outputOffset
-  //  } else if (column.bitLength == 32) {
-  //    val endOffset = math.min(encodedEnd, encodedOffset + DECODE_BUFFER_SIZE / (32 / 1))
-  //    while (encodedOffset < endOffset) {
-  //      val thisByte = Platform.getByte(encodedObject, encodedOffset).toInt
-  //      Platform.putInt(decodedObject, outputOffset + 0 * 4, ((thisByte >> 0) & 1).toByte)
-  //      Platform.putInt(decodedObject, outputOffset + 1 * 4, ((thisByte >> 1) & 1).toByte)
-  //      Platform.putInt(decodedObject, outputOffset + 2 * 4, ((thisByte >> 2) & 1).toByte)
-  //      Platform.putInt(decodedObject, outputOffset + 3 * 4, ((thisByte >> 3) & 1).toByte)
-  //      Platform.putInt(decodedObject, outputOffset + 4 * 4, ((thisByte >> 4) & 1).toByte)
-  //      Platform.putInt(decodedObject, outputOffset + 5 * 4, ((thisByte >> 5) & 1).toByte)
-  //      Platform.putInt(decodedObject, outputOffset + 6 * 4, ((thisByte >> 6) & 1).toByte)
-  //      Platform.putInt(decodedObject, outputOffset + 7 * 4, ((thisByte >> 7) & 1).toByte)
-  //      outputOffset += 32
-  //      encodedOffset += 1
-  //    }
-  //    decodedEnd = outputOffset
-  //  } else {
-  //    throw new NotImplementedError()
-  //  }
-  //}
 
   /**
    * Decode bits with FlatEncoding(1) into our decoded buffer

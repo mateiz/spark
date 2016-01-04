@@ -37,6 +37,9 @@ private[sql] final class ColumnReader(column: Column) {
   private[this] var decodedOffset: Long = 0
   private[this] var decodedEnd: Long = 0
 
+  // Repeats left in current run, if column is encoded using RLE
+  private[this] var runLengthLeft = 0
+
   import ColumnReader.DECODE_BUFFER_SIZE
 
   decodeNextChunk()
@@ -122,6 +125,8 @@ private[sql] final class ColumnReader(column: Column) {
           decodeFlat1()
         case FlatEncoding(8) =>
           decodeFlat8()
+        case RunLengthEncoding(32) =>
+          decodeRLE32()
         case _ =>
           throw new NotImplementedError()
       }
@@ -171,7 +176,7 @@ private[sql] final class ColumnReader(column: Column) {
   }
 
   /**
-   * Decode bits with FlatEncoding(1) into our decoded buffer
+   * Decode bits with FlatEncoding(1) into our decoded buffer.
    */
   private def decodeFlat8(): Unit = {
     var outputOffset = decodedOffset
@@ -197,6 +202,35 @@ private[sql] final class ColumnReader(column: Column) {
         encodedOffset += 1
       }
       decodedEnd = outputOffset
+    } else {
+      throw new NotImplementedError()
+    }
+  }
+
+  /**
+   * Decode bits with RunLengthEncoding(32) into our decoded buffer.
+   */
+  private def decodeRLE32(): Unit = {
+    if (column.bitLength == 32) {
+      val maxValuesInBuffer = DECODE_BUFFER_SIZE / (32 / 8)
+      // Load a new run if the previous one is done
+      if (runLengthLeft == 0) {
+        val runLength = Platform.getByte(encodedObject, encodedOffset)
+        val value = Platform.getInt(encodedObject, encodedOffset + 1)
+        encodedOffset += 5
+        runLengthLeft = runLength & 0xff
+        var i = 0
+        val n = math.min(runLengthLeft, maxValuesInBuffer)
+        while (i < n) {
+          Platform.putInt(decodedObject, decodedOffset + i * 4, value)
+          i += 1
+        }
+      }
+      // Mark the right range in our buffer to read; the load code above ensures that the whole
+      // buffer is full if runLength >= maxValuesInBuffer, and only the start otherwise
+      val toGive = math.min(runLengthLeft, maxValuesInBuffer)
+      decodedEnd = decodedOffset + 4 * toGive
+      runLengthLeft -= toGive
     } else {
       throw new NotImplementedError()
     }

@@ -92,52 +92,37 @@ object ColumnReaderBenchmark {
     sum
   }
 
-  private def flat32IntSum(data: ByteBuffer): Int = {
-    data.rewind()
-    val column = new Column(data, 32, FlatEncoding(32))
-    val reader = new ColumnReader2(column)
+  private def columnSum(column: Column, numInts: Int): Int = {
+    val reader = new ColumnReader(column)
     var i = 0
-    val total = data.limit() / 4
     var sum = 0
-    while (i < total) {
+    while (i < numInts) {
       sum += reader.readInt()
       i += 1
     }
     sum
   }
 
-  private def flat8IntSum(data: ByteBuffer): Int = {
-    data.rewind()
-    val column = new Column(data, 32, FlatEncoding(8))
-    val reader = new ColumnReader(column)
-    var i = 0
-    val total = data.limit()
-    var sum = 0
-    while (i < total) {
-      sum += reader.readInt()
-      i += 1
-    }
-    sum
+  private def flat32IntSum(data: ByteBuffer, numInts: Int): Int = {
+    columnSum(new Column(data, 32, FlatEncoding(32)), numInts)
   }
 
-  private def flat1IntSum(data: ByteBuffer): Int = {
-    data.rewind()
-    val column = new Column(data, 32, FlatEncoding(1))
-    val reader = new ColumnReader(column)
-    var i = 0
-    val total = data.limit() * 8
-    var sum = 0
-    while (i < total) {
-      sum += reader.readInt()
-      i += 1
-    }
-    sum
+  private def flat8IntSum(data: ByteBuffer, numInts: Int): Int = {
+    columnSum(new Column(data, 32, FlatEncoding(8)), numInts)
+  }
+
+  private def flat1IntSum(data: ByteBuffer, numInts: Int): Int = {
+    columnSum(new Column(data, 32, FlatEncoding(1)), numInts)
+  }
+
+  private def rle32IntSum(data: ByteBuffer, numInts: Int): Int = {
+    columnSum(new Column(data, 32, RunLengthEncoding(32)), numInts)
   }
 
   def main(args: Array[String]): Unit = {
-    val numRawBytes = 32 * 1024 * 1024
+    val numRawBytes = 32 * 1024 * 1024   // Should be multiple of 64
     val numInts = numRawBytes / 4
-    val ints = (0 until numInts).map(i => i % 2).toArray
+    val ints = (0 until numInts).map(i => (i / 64) % 2).toArray
     val expectedSum = ints.sum
 
     val flat32Data = ByteBuffer.allocate(numRawBytes).order(ByteOrder.nativeOrder())
@@ -156,12 +141,21 @@ object ColumnReaderBenchmark {
     }
     flat1Data.rewind()
 
+    val rle32Data = ByteBuffer.allocate(numInts / 64 * 5).order(ByteOrder.nativeOrder())
+    for (i <- 0 until numInts / 64) {
+      val value = i % 2
+      rle32Data.put(i * 5, 64.toByte)
+      rle32Data.putInt(i * 5 + 1, value)
+    }
+    rle32Data.rewind()
+
     benchmark("Array", numRawBytes) { require(arrayIntSum(ints) == expectedSum) }
     benchmark("Naive", numRawBytes) { require(naiveIntSum(flat32Data) == expectedSum) }
     benchmark("Unsafe32", numRawBytes) { require(unsafeIntSum(flat32Data) == expectedSum) }
     benchmark("Unsafe8", numRawBytes) { require(unsafeFlat8Sum(flat8Data) == expectedSum) }
-    benchmark("Flat32", numRawBytes) { require(flat32IntSum(flat32Data) == expectedSum) }
-    //benchmark("Flat8", numRawBytes) { require(flat8IntSum(flat8Data) == expectedSum) }
-    //benchmark("Flat1", numRawBytes) { require(flat1IntSum(flat1Data) == expectedSum) }
+    benchmark("Flat32", numRawBytes) { require(flat32IntSum(flat32Data, numInts) == expectedSum) }
+    benchmark("Flat8", numRawBytes) { require(flat8IntSum(flat8Data, numInts) == expectedSum) }
+    benchmark("Flat1", numRawBytes) { require(flat1IntSum(flat1Data, numInts) == expectedSum) }
+    benchmark("RLE32", numRawBytes) { require(rle32IntSum(rle32Data, numInts) == expectedSum) }
   }
 }
