@@ -49,9 +49,11 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
    * already available.
    */
   override protected def create(spec: ReadSpec): ColumnSetReader = {
+    val schema = spec.schema
     val code = s"""
       import org.apache.spark.sql.catalyst.expressions.*;
       import org.apache.spark.sql.columnar2.*;
+      import org.apache.spark.sql.types.*;
 
       public MyReader generate($exprType[] exprs) {
         return new MyReader();
@@ -61,14 +63,18 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
         private int numRows;
         private int rowsRead;
         private MutableRow outputRow;
-        ${spec.fieldsRead.map(i => columnDeclarations(spec.schema(i), "_" + i)).mkString("\n")}
+        ${spec.fieldsRead.map(i =>
+            columnDeclarations(schema(i).dataType, schema(i).nullable, "_" + i)
+          ).mkString("\n")}
 
         public void initialize(ColumnSet data, MutableRow outputRow) {
           this.numRows = data.numRows();
           this.rowsRead = 0;
           this.outputRow = outputRow;
           java.util.Map cols = data.columns();
-          ${spec.fieldsRead.map(i => columnInitializers(spec.schema(i), "_" + i)).mkString("\n")}
+          ${spec.fieldsRead.map(i =>
+              columnInitializers(schema(i).dataType, schema(i).nullable, "_" + i)
+            ).mkString("\n")}
         }
 
         public boolean readNext() {
@@ -76,7 +82,7 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
             return false;
           }
           ${spec.fieldsRead.zipWithIndex.map{ case (f, i) =>
-             readField(spec.schema(f), "_" + f, "outputRow", i)
+             readField(schema(f).dataType, schema(f).nullable, "_" + f, "outputRow", i)
            }.mkString("\n")}
           this.rowsRead += 1;
           return true;
@@ -91,17 +97,17 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
   }
 
   /**
-   * Generate the variable declarations required to read a specific column, given its path prefix
-   * (e.g. "_0" for field 0, "_0_1" for "0.1", etc).
+   * Generate the variable declarations required to read an element of a given type, given a path
+   * prefix to use for generated values (e.g. "_0" for field 0, "_0_1" for "0.1", etc).
    */
-  private def columnDeclarations(field: StructField, prefix: String): String = {
-    val nullable = if (field.nullable) {
+  private def columnDeclarations(dataType: DataType, nullable: Boolean, prefix: String): String = {
+    val setCode = if (nullable) {
       s"""ColumnReader ${prefix}_set;\n"""
     } else {
       ""
     }
 
-    val data = field.dataType match {
+    val dataCode = dataType match {
       case IntegerType =>
         s"""ColumnReader ${prefix}_data;"""
 
@@ -111,25 +117,29 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
 
       case StructType(fields) =>
         fields.zipWithIndex.map { case (f, i) =>
-          columnDeclarations(f, prefix + "_" + i)
+          columnDeclarations(f.dataType, f.nullable, prefix + "_" + i)
         }.mkString("\n")
+
+      case ArrayType(elemType, containsNull) =>
+        s"""ColumnReader ${prefix}_length;
+            ${columnDeclarations(elemType, containsNull, prefix + "_elem")}"""
     }
 
-    nullable + data
+    setCode + dataCode
   }
 
   /**
-   * Generate the code to initialize readers for a specific column, given its path prefix
+   * Generate the code to initialize readers for an element of a given type, given a path prefix
    * (e.g. "_0" for field 0, "_0_1" for "0.1", etc).
    */
-  private def columnInitializers(field: StructField, prefix: String): String = {
-    val nullable = if (field.nullable) {
+  private def columnInitializers(dataType: DataType, nullable: Boolean, prefix: String): String = {
+    val setCode = if (nullable) {
       s"""${prefix}_set = new ColumnReader((Column) cols.get("${mapKey(prefix + "_set")}"));\n"""
     } else {
       ""
     }
 
-    val data = field.dataType match {
+    val dataCode = dataType match {
       case IntegerType =>
         s"""${prefix}_data = new ColumnReader((Column) cols.get("${mapKey(prefix + "_data")}"));"""
 
@@ -140,11 +150,16 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
 
       case StructType(fields) =>
         fields.zipWithIndex.map { case (f, i) =>
-          columnInitializers(f, prefix + "_" + i)
+          columnInitializers(f.dataType, f.nullable, prefix + "_" + i)
         }.mkString("\n")
+
+      case ArrayType(elemType, containsNull) =>
+        s"""${prefix}_length = new ColumnReader((Column) cols.get("${mapKey(prefix + "_length")}"));
+            ${columnInitializers(elemType, containsNull, prefix + "_elem")}
+         """.stripMargin
     }
 
-    nullable + data
+    setCode + dataCode
   }
 
   /**
@@ -152,7 +167,8 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
    * (which should be a SpecificMutableRow), given the path prefix for the field.
    */
   private def readField(
-      field: StructField,
+      dataType: DataType,
+      nullable: Boolean,
       prefix: String,
       rowVar: String,
       ordinalInRow: Int): String = {
@@ -160,8 +176,10 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
     val length = s"${prefix}_length_"
     val bytes = s"${prefix}_bytes_"
     val row = s"${prefix}_row_"
+    val array = s"${prefix}_array_"
+    val i = s"${prefix}_i_"
 
-    val dataReadCode = field.dataType match {
+    val dataReadCode = dataType match {
       case IntegerType =>
         s"""$rowVar.setInt($ordinalInRow, ${prefix}_data.readInt());"""
 
@@ -178,13 +196,27 @@ class GenerateColumnSetReader extends CodeGenerator[ReadSpec, ColumnSetReader] {
       case StructType(fields) =>
         s"""GenericMutableRow $row = new GenericMutableRow(${fields.length});
             ${fields.zipWithIndex.map { case (f, i) =>
-              readField(f, prefix + "_" + i, row, i)
+              readField(f.dataType, f.nullable, prefix + "_" + i, row, i)
             }.mkString("\n")}
             $rowVar.update($ordinalInRow, $row);
          """
+
+      // TODO: We can actually specialize the code for ArrayType(IntType, false) and similar things to
+      // create a primitive array instead of an array of objects
+      // TODO: it's a bit awkward that we always read into a Row, so we need a dummy Row object
+      case ArrayType(elemType, containsNull) =>
+        s"""int $length = ${prefix}_length.readInt();
+            GenericMutableRow $row = new GenericMutableRow(1);
+            Object[] $array = new Object[$length];
+            for (int $i = 0; $i < $length; $i++) {
+              ${readField(elemType, containsNull, prefix + "_elem", row, 0)}
+              $array[$i] = $row.get(0, null);
+            }
+            $rowVar.update($ordinalInRow, new GenericArrayData($array));
+         """
     }
 
-    if (field.nullable) {
+    if (nullable) {
       s"""if (${prefix}_set.readBoolean()) {
             $dataReadCode
           } else {

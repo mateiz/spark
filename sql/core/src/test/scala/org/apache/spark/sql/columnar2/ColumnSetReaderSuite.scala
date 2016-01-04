@@ -219,4 +219,76 @@ class ColumnSetReaderSuite extends SparkFunSuite {
       InternalRow(3, InternalRow(null, UTF8String.fromString("bar"))),
       InternalRow(4, InternalRow(2, UTF8String.fromString("")))))
   }
+
+  test("simple array") {
+    val structType = StructType(Seq(
+      StructField("a", ArrayType(IntegerType, false), nullable = false)
+    ))
+
+    val data = createIntColumn(1, -2, 0, Int.MaxValue, Int.MinValue)
+    val length = createIntColumn(2, 0, 3)
+    val map = Map("0.elem.data" -> data, "0.length" -> length).asJava
+    val colSet = new ColumnSet(structType, map, 3)
+
+    val readSpec = ReadSpec(structType, Array(0))
+
+    val reader = new GenerateColumnSetReader().generate(readSpec)
+    checkRowsRead(reader, colSet, readSpec, Seq(
+      InternalRow(new GenericArrayData(Seq(1, -2))),
+      InternalRow(new GenericArrayData(Seq())),
+      InternalRow(new GenericArrayData(Seq(0, Int.MaxValue, Int.MinValue)))))
+  }
+
+  test("array with nullable elements") {
+    val structType = StructType(Seq(
+      StructField("a", ArrayType(IntegerType, true), nullable = false)
+    ))
+
+    val data = createIntColumn(1, -2, 0, Int.MaxValue, Int.MinValue)
+    val set = createBooleanColumn(true, false, true, false, true, true, true)
+    val length = createIntColumn(3, 1, 3)
+    val map = Map("0.elem.data" -> data, "0.elem.set" -> set, "0.length" -> length).asJava
+    val colSet = new ColumnSet(structType, map, 3)
+
+    val readSpec = ReadSpec(structType, Array(0))
+
+    val reader = new GenerateColumnSetReader().generate(readSpec)
+    checkRowsRead(reader, colSet, readSpec, Seq(
+      InternalRow(new GenericArrayData(Seq(1, null, -2))),
+      InternalRow(new GenericArrayData(Seq(null))),
+      InternalRow(new GenericArrayData(Seq(0, Int.MaxValue, Int.MinValue)))))
+  }
+
+  test("array of structs") {
+    val elemType = StructType(Seq(
+      StructField("b", IntegerType, nullable = true),
+      StructField("c", IntegerType, nullable = false)
+    ))
+
+    val structType = StructType(Seq(
+      StructField("a", ArrayType(elemType, false), nullable = false)
+    ))
+
+    val bData = createIntColumn(1, 2, 3)
+    val bSet = createBooleanColumn(true, false, true, false, true)
+    val cData = createIntColumn(5, 4, 3, 2, 1)
+    val length = createIntColumn(2, 0, 3)
+    val map = Map(
+      "0.length" -> length,
+      "0.elem.0.data" -> bData,
+      "0.elem.0.set" -> bSet,
+      "0.elem.1.data" -> cData
+    ).asJava
+    val colSet = new ColumnSet(structType, map, 3)
+
+    val readSpec = ReadSpec(structType, Array(0))
+
+    val reader = new GenerateColumnSetReader().generate(readSpec)
+    checkRowsRead(reader, colSet, readSpec, Seq(
+      InternalRow(new GenericArrayData(Seq(
+        InternalRow(1, 5), InternalRow(null, 4)))),
+      InternalRow(new GenericArrayData(Seq())),
+      InternalRow(new GenericArrayData(Seq(
+        InternalRow(2, 3), InternalRow(null, 2), InternalRow(3, 1))))))
+  }
 }
