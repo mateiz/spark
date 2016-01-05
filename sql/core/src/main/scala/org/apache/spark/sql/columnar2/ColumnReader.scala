@@ -74,6 +74,26 @@ private[sql] final class ColumnReader(column: Column) {
     res
   }
 
+  def readInts(dest: Array[Int]): Unit = {
+    //require(column.bitLength == 32, "column must have bit length 32")
+    var i = 0
+    while (i < dest.length) {
+      if (decodedOffset == decodedEnd) {
+        decodeNextChunk()
+      }
+      while (i + 32 <= dest.length && decodedOffset + 32 * 4 <= decodedEnd) {
+        Platform.copyMemory(decodedObject, decodedOffset, dest, Platform.INT_ARRAY_OFFSET + i * 4, 32 * 4)
+        decodedOffset += 32 * 4
+        i += 32
+      }
+      while (i < dest.length && decodedOffset < decodedEnd) {
+        dest(i) = Platform.getInt(decodedObject, decodedOffset)
+        decodedOffset += 4
+        i += 1
+      }
+    }
+  }
+
   def readBytes(dest: Array[Byte], offset: Int, length: Int): Unit = {
     //require(column.bitLength == 8, "column must have bit length 8")
     var pos = 0L

@@ -92,31 +92,44 @@ object ColumnReaderBenchmark {
     sum
   }
 
-  private def columnSum(column: Column, numInts: Int): Int = {
+  private def columnSum(column: Column, numInts: Int, vectorize: Boolean): Int = {
     val reader = new ColumnReader(column)
     var i = 0
     var sum = 0
-    while (i < numInts) {
-      sum += reader.readInt()
-      i += 1
+    if (vectorize) {
+      val ints = new Array[Int](32)
+      while (i < numInts) {
+        reader.readInts(ints)
+        var j = 0
+        while (j < 32) {
+          sum += ints(j)
+          j += 1
+        }
+        i += 32
+      }
+    } else {
+      while (i < numInts) {
+        sum += reader.readInt()
+        i += 1
+      }
     }
     sum
   }
 
-  private def flat32IntSum(data: ByteBuffer, numInts: Int): Int = {
-    columnSum(new Column(data, 32, FlatEncoding(32)), numInts)
+  private def flat32IntSum(data: ByteBuffer, numInts: Int, vectorize: Boolean = false): Int = {
+    columnSum(new Column(data, 32, FlatEncoding(32)), numInts, vectorize)
   }
 
-  private def flat8IntSum(data: ByteBuffer, numInts: Int): Int = {
-    columnSum(new Column(data, 32, FlatEncoding(8)), numInts)
+  private def flat8IntSum(data: ByteBuffer, numInts: Int, vectorize: Boolean = false): Int = {
+    columnSum(new Column(data, 32, FlatEncoding(8)), numInts, vectorize)
   }
 
-  private def flat1IntSum(data: ByteBuffer, numInts: Int): Int = {
-    columnSum(new Column(data, 32, FlatEncoding(1)), numInts)
+  private def flat1IntSum(data: ByteBuffer, numInts: Int, vectorize: Boolean = false): Int = {
+    columnSum(new Column(data, 32, FlatEncoding(1)), numInts, vectorize)
   }
 
-  private def rle32IntSum(data: ByteBuffer, numInts: Int): Int = {
-    columnSum(new Column(data, 32, RunLengthEncoding(32)), numInts)
+  private def rle32IntSum(data: ByteBuffer, numInts: Int, vectorize: Boolean = false): Int = {
+    columnSum(new Column(data, 32, RunLengthEncoding(32)), numInts, vectorize)
   }
 
   def main(args: Array[String]): Unit = {
@@ -157,5 +170,9 @@ object ColumnReaderBenchmark {
     benchmark("Flat8", numRawBytes) { require(flat8IntSum(flat8Data, numInts) == expectedSum) }
     benchmark("Flat1", numRawBytes) { require(flat1IntSum(flat1Data, numInts) == expectedSum) }
     benchmark("RLE32", numRawBytes) { require(rle32IntSum(rle32Data, numInts) == expectedSum) }
+    benchmark("Flat32Vec", numRawBytes) { require(flat32IntSum(flat32Data, numInts, true) == expectedSum) }
+    benchmark("Flat8Vec", numRawBytes) { require(flat8IntSum(flat8Data, numInts, true) == expectedSum) }
+    benchmark("Flat1Vec", numRawBytes) { require(flat1IntSum(flat1Data, numInts, true) == expectedSum) }
+    benchmark("RLE32Vec", numRawBytes) { require(rle32IntSum(rle32Data, numInts, true) == expectedSum) }
   }
 }
