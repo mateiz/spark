@@ -128,6 +128,12 @@
       <artifactId>xbean-asm5-shaded</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>edu.mit.nvl</groupId>
+      <artifactId>nvl_${scala.binary.version}</artifactId>
+      <version>0.1-SNAPSHOT</version>
+      <type>jar</type>
+    </dependency>
   </dependencies>
   <build>
     <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>
